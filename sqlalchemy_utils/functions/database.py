@@ -596,9 +596,8 @@ def create_database(url, encoding='utf8', template=None):
 
     engine.dispose()
 
-
 def drop_database(url):
-    """Issue the appropriate DROP DATABASE statement.
+    """Issue the appropriate DROP DATABASE statement with enhanced transaction diagnostics.
 
     :param url: A SQLAlchemy engine URL.
 
@@ -657,8 +656,11 @@ def drop_database(url):
             conn.execute(sa.text(text))
     elif dialect_name == 'mssql':
         with engine.begin() as conn:
-            # Print detailed information about active transactions in the database
-            sql = f'''
+            print(f"\n{'='*80}\nDIAGNOSTIC INFORMATION BEFORE DROPPING DATABASE '{database}'\n{'='*80}")
+            
+            # 1. Get active transaction details
+            print("\n1. ACTIVE TRANSACTIONS IN DATABASE\n" + "-"*50)
+            active_trans_sql = f'''
             SELECT
                 at.transaction_id,
                 at.name AS transaction_name,
@@ -666,7 +668,7 @@ def drop_database(url):
                 at.transaction_state,
                 at.transaction_status,
                 at.transaction_begin_time,
-                s.session_id,
+                stx.session_id,
                 s.login_name,
                 s.host_name,
                 s.program_name,
@@ -683,36 +685,151 @@ def drop_database(url):
             OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS st
             WHERE s.database_id = DB_ID('{database}')
             '''
-            print(f"\nActive transactions in database '{database}' before dropping:\n{'='*60}")
-            result = conn.execute(sa.text(sql))
-            for row in result:
-                print(f"Transaction ID      : {row[0]}")
-                print(f"Transaction Name    : {row[1]}")
-                print(f"Transaction Type    : {row[2]}")
-                print(f"Transaction State   : {row[3]}")
-                print(f"Transaction Status  : {row[4]}")
-                print(f"Begin Time          : {row[5]}")
-                print(f"Session ID          : {row[6]}")
-                print(f"Login Name          : {row[7]}")
-                print(f"Host Name           : {row[8]}")
-                print(f"Program Name        : {row[9]}")
-                print(f"Request Status      : {row[10]}")
-                print(f"Command             : {row[11]}")
-                print(f"SQL Text            : {row[12]}")
-                print("-" * 60)
-
-
-            # Set the database to single user mode to disconnect all users
-            #text = f'''
-            #ALTER DATABASE {quote(conn, database)}
-            #SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-            #'''
-            #conn.execute(sa.text(text))
-
-            # Drop the database
-            text = f'DROP DATABASE {quote(conn, database)}'
-            conn.execute(sa.text(text))
+            active_trans_result = conn.execute(sa.text(active_trans_sql))
+            rows = active_trans_result.fetchall()
+            
+            if not rows:
+                print("No active transactions found.")
+            else:
+                for row in rows:
+                    session_id = row[6]  # Store for later use in additional queries
+                    print(f"Transaction ID      : {row[0]}")
+                    print(f"Transaction Name    : {row[1]}")
+                    print(f"Transaction Type    : {row[2]}")
+                    print(f"Transaction State   : {row[3]}")
+                    print(f"Transaction Status  : {row[4]}")
+                    print(f"Begin Time          : {row[5]}")
+                    print(f"Session ID          : {session_id}")
+                    print(f"Login Name          : {row[7]}")
+                    print(f"Host Name           : {row[8]}")
+                    print(f"Program Name        : {row[9]}")
+                    print(f"Request Status      : {row[10]}")
+                    print(f"Command             : {row[11]}")
+                    print(f"SQL Text            : {row[12]}")
+                    print("-" * 50)
+                    
+                    # 2. For each active transaction, get lock information
+                    print(f"\n2. LOCKS HELD BY SESSION {session_id}\n" + "-"*50)
+                    locks_sql = f'''
+                    SELECT 
+                        tl.resource_type,
+                        OBJECT_NAME(p.object_id) as object_name,
+                        tl.resource_description,
+                        tl.request_mode,
+                        tl.request_status
+                    FROM sys.dm_tran_locks tl
+                    LEFT JOIN sys.partitions p ON p.hobt_id = tl.resource_associated_entity_id
+                    WHERE tl.request_session_id = {session_id}
+                    '''
+                    try:
+                        locks_result = conn.execute(sa.text(locks_sql))
+                        locks = locks_result.fetchall()
+                        if not locks:
+                            print("No locks found for this session.")
+                        else:
+                            for lock in locks:
+                                print(f"Resource Type      : {lock[0]}")
+                                print(f"Object Name        : {lock[1]}")
+                                print(f"Resource Description: {lock[2]}")
+                                print(f"Request Mode       : {lock[3]}")
+                                print(f"Request Status     : {lock[4]}")
+                                print("-" * 50)
+                    except Exception as e:
+                        print(f"Error retrieving locks: {e}")
+                    
+                    # 3. Get recent SQL statements executed by this session
+                    print(f"\n3. RECENT SQL BY SESSION {session_id}\n" + "-"*50)
+                    recent_sql = f'''
+                    SELECT TOP 5
+                        st.text AS sql_text,
+                        qs.creation_time,
+                        qs.last_execution_time,
+                        qs.execution_count
+                    FROM sys.dm_exec_query_stats qs
+                    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+                    WHERE qs.plan_handle IN (
+                        SELECT plan_handle 
+                        FROM sys.dm_exec_sessions s
+                        JOIN sys.dm_exec_requests r ON s.session_id = r.session_id
+                        WHERE s.session_id = {session_id}
+                    )
+                    ORDER BY qs.last_execution_time DESC
+                    '''
+                    try:
+                        recent_sql_result = conn.execute(sa.text(recent_sql))
+                        recent = recent_sql_result.fetchall()
+                        if not recent:
+                            print("No recent SQL statements found.")
+                        else:
+                            for sql in recent:
+                                print(f"SQL Text           : {sql[0]}")
+                                print(f"Creation Time      : {sql[1]}")
+                                print(f"Last Execution     : {sql[2]}")
+                                print(f"Execution Count    : {sql[3]}")
+                                print("-" * 50)
+                    except Exception as e:
+                        print(f"Error retrieving recent SQL: {e}")
+                    
+                    # 4. Check if the transaction is blocking others
+                    print(f"\n4. BLOCKING BY SESSION {session_id}\n" + "-"*50)
+                    blocking_sql = f'''
+                    SELECT 
+                        blocked.session_id as blocked_session,
+                        blocked.wait_type,
+                        blocked.wait_time,
+                        st.text as blocked_statement
+                    FROM sys.dm_exec_requests blocked
+                    CROSS APPLY sys.dm_exec_sql_text(blocked.sql_handle) st
+                    WHERE blocked.blocking_session_id = {session_id}
+                    '''
+                    try:
+                        blocking_result = conn.execute(sa.text(blocking_sql))
+                        blocking = blocking_result.fetchall()
+                        if not blocking:
+                            print("This session is not blocking any other sessions.")
+                        else:
+                            for block in blocking:
+                                print(f"Blocked Session    : {block[0]}")
+                                print(f"Wait Type          : {block[1]}")
+                                print(f"Wait Time (ms)     : {block[2]}")
+                                print(f"Blocked Statement  : {block[3]}")
+                                print("-" * 50)
+                    except Exception as e:
+                        print(f"Error retrieving blocking info: {e}")
+                
+                # 5. Offer to kill blocking sessions
+                print("\n5. RECOMMENDATIONS:")
+                print("To resolve blocking issues before dropping the database, consider:")
+                print("1. Wait for active transactions to complete")
+                print("2. Contact application owners to properly close connections")
+                print(f"3. Run: KILL <session_id> to terminate specific sessions")
+                print("4. Use the WITH ROLLBACK IMMEDIATE option to force termination of connections\n")
+                
+            # Try to drop the database with safety options
+            try:
+                print(f"\nATTEMPTING TO DROP DATABASE '{database}'...\n")
+                
+                # Set the database to single user mode to disconnect all users
+                single_user_sql = f'''
+                ALTER DATABASE {quote(conn, database)}
+                SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                '''
+                conn.execute(sa.text(single_user_sql))
+                print(f"Database set to SINGLE_USER mode with ROLLBACK IMMEDIATE.")
+                
+                # Drop the database
+                drop_sql = f'DROP DATABASE {quote(conn, database)}'
+                conn.execute(sa.text(drop_sql))
+                print(f"Database '{database}' successfully dropped.")
+            except Exception as e:
+                print(f"Error dropping database: {e}")
+                print("\nIf you need to force drop the database, you may need to manually:")
+                print("1. Kill all sessions connected to the database")
+                print("2. Set the database to single user mode")
+                print("3. Drop the database\n")
     else:
         with engine.begin() as conn:
             text = f'DROP DATABASE {quote(conn, database)}'
             conn.execute(sa.text(text))
+            
+    engine.dispose()
