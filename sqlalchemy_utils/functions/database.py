@@ -657,12 +657,46 @@ def drop_database(url):
             conn.execute(sa.text(text))
     elif dialect_name == 'mssql':
         with engine.begin() as conn:
-            # Set the database to single user mode to disconnect all users
+            # Print detailed information about active transactions in the database
             text = f'''
-            ALTER DATABASE {quote(conn, database)}
-            SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+            SELECT 
+                s.session_id,
+                t.transaction_id,
+                t.transaction_begin_time,
+                t.open_transaction_count,
+                s.login_name,
+                s.host_name,
+                s.program_name,
+                st.text AS query_text,
+                s.last_request_start_time,
+                s.last_request_end_time,
+                s.status
+            FROM sys.dm_tran_session_transactions st_trans
+            JOIN sys.dm_tran_active_transactions t
+                ON st_trans.transaction_id = t.transaction_id
+            JOIN sys.dm_exec_sessions s
+                ON st_trans.session_id = s.session_id
+            LEFT JOIN sys.dm_exec_connections c
+                ON s.session_id = c.session_id
+            OUTER APPLY sys.dm_exec_sql_text(c.most_recent_sql_handle) st
+            WHERE DB_NAME(t.database_id) = '{database}'
             '''
-            conn.execute(sa.text(text))
+            print(f"Active transactions in database '{database}' before dropping:")
+            result = conn.execute(sa.text(text))
+            for row in result:
+                print(f"Session ID: {row[0]}, Transaction ID: {row[1]}")
+                print(f"  Begin Time: {row[2]}, Open Count: {row[3]}")
+                print(f"  User: {row[4]}, Host: {row[5]}, Program: {row[6]}")
+                print(f"  Query: {row[7]}")
+                print(f"  Started: {row[8]}, Ended: {row[9]}, Status: {row[10]}")
+                print("-" * 50)
+
+            # Set the database to single user mode to disconnect all users
+            #text = f'''
+            #ALTER DATABASE {quote(conn, database)}
+            #SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+            #'''
+            #conn.execute(sa.text(text))
 
             # Drop the database
             text = f'DROP DATABASE {quote(conn, database)}'
