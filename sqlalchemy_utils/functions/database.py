@@ -804,32 +804,13 @@ def drop_database(url):
                 print("2. Contact application owners to properly close connections")
                 print(f"3. Run: KILL <session_id> to terminate specific sessions")
                 print("4. Use the WITH ROLLBACK IMMEDIATE option to force termination of connections\n")
-                
-            # Try to drop the database with safety options
-            try:
-                print(f"\nATTEMPTING TO DROP DATABASE '{database}'...\n")
-                
-                # Set the database to single user mode to disconnect all users
-                single_user_sql = f'''
-                ALTER DATABASE {quote(conn, database)}
-                SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                '''
-                conn.execute(sa.text(single_user_sql))
-                print(f"Database set to SINGLE_USER mode with ROLLBACK IMMEDIATE.")
-                
-                # Drop the database
-                drop_sql = f'DROP DATABASE {quote(conn, database)}'
-                conn.execute(sa.text(drop_sql))
-                print(f"Database '{database}' successfully dropped.")
-            except Exception as e:
-                print(f"Error dropping database: {e}")
-                print("\nIf you need to force drop the database, you may need to manually:")
-                print("1. Kill all sessions connected to the database")
-                print("2. Set the database to single user mode")
-                print("3. Drop the database\n")
+
+            # Drop the database
+            drop_sql = f'DROP DATABASE {quote(conn, database)}'
+            conn.execute(sa.text(drop_sql))
+            print(f"Database '{database}' successfully dropped.")
     else:
         with engine.begin() as conn:
             text = f'DROP DATABASE {quote(conn, database)}'
             conn.execute(sa.text(text))
             
-    engine.dispose()
