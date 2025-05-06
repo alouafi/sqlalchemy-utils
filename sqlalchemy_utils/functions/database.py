@@ -709,9 +709,9 @@ def drop_database(url):
             #'''
             #conn.execute(sa.text(text))
 
-                # Drop the database
-                text = f'DROP DATABASE {quote(conn, database)}'
-                conn.execute(sa.text(text))
+            # Drop the database
+            text = f'DROP DATABASE {quote(conn, database)}'
+            conn.execute(sa.text(text))
     else:
         with engine.begin() as conn:
             text = f'DROP DATABASE {quote(conn, database)}'
