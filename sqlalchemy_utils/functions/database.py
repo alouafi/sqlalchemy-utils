@@ -683,23 +683,23 @@ def drop_database(url):
             OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS st
             WHERE s.database_id = DB_ID('{database}')
             '''
-        print(f"\nActive transactions in database '{database}' before dropping:\n{'='*60}")
-        result = conn.execute(sa.text(sql))
-        for row in result:
-            print(f"Transaction ID      : {row['transaction_id']}")
-            print(f"Transaction Name    : {row['transaction_name']}")
-            print(f"Transaction Type    : {row['transaction_type']}")
-            print(f"Transaction State   : {row['transaction_state']}")
-            print(f"Transaction Status  : {row['transaction_status']}")
-            print(f"Begin Time          : {row['transaction_begin_time']}")
-            print(f"Session ID          : {row['session_id']}")
-            print(f"Login Name          : {row['login_name']}")
-            print(f"Host Name           : {row['host_name']}")
-            print(f"Program Name        : {row['program_name']}")
-            print(f"Request Status      : {row['request_status']}")
-            print(f"Command             : {row['command']}")
-            print(f"SQL Text            : {row['sql_text']}")
-            print("-" * 60)
+            print(f"\nActive transactions in database '{database}' before dropping:\n{'='*60}")
+            result = conn.execute(sa.text(sql))
+            for row in result:
+                print(f"Transaction ID      : {row['transaction_id']}")
+                print(f"Transaction Name    : {row['transaction_name']}")
+                print(f"Transaction Type    : {row['transaction_type']}")
+                print(f"Transaction State   : {row['transaction_state']}")
+                print(f"Transaction Status  : {row['transaction_status']}")
+                print(f"Begin Time          : {row['transaction_begin_time']}")
+                print(f"Session ID          : {row['session_id']}")
+                print(f"Login Name          : {row['login_name']}")
+                print(f"Host Name           : {row['host_name']}")
+                print(f"Program Name        : {row['program_name']}")
+                print(f"Request Status      : {row['request_status']}")
+                print(f"Command             : {row['command']}")
+                print(f"SQL Text            : {row['sql_text']}")
+                print("-" * 60)
 
 
             # Set the database to single user mode to disconnect all users
@@ -709,9 +709,9 @@ def drop_database(url):
             #'''
             #conn.execute(sa.text(text))
 
-            # Drop the database
-            text = f'DROP DATABASE {quote(conn, database)}'
-            conn.execute(sa.text(text))
+                # Drop the database
+                text = f'DROP DATABASE {quote(conn, database)}'
+                conn.execute(sa.text(text))
     else:
         with engine.begin() as conn:
             text = f'DROP DATABASE {quote(conn, database)}'
