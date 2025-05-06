@@ -658,7 +658,7 @@ def drop_database(url):
     elif dialect_name == 'mssql':
         with engine.begin() as conn:
             # Print detailed information about active transactions in the database
-            text = f'''
+            text = '''
             SELECT 
                 s.session_id,
                 t.transaction_id,
@@ -679,7 +679,6 @@ def drop_database(url):
             LEFT JOIN sys.dm_exec_connections c
                 ON s.session_id = c.session_id
             OUTER APPLY sys.dm_exec_sql_text(c.most_recent_sql_handle) st
-            WHERE DB_NAME(t.database_id) = '{database}'
             '''
             print(f"Active transactions in database '{database}' before dropping:")
             result = conn.execute(sa.text(text))
