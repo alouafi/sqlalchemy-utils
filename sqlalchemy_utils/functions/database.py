@@ -479,14 +479,13 @@ def database_exists(url):
     url = make_url(url)
     database = url.database
     dialect_name = url.get_dialect().name
-    dialect_driver = url.get_dialect().driver
     engine = None
     try:
         if dialect_name == 'postgresql':
             text = "SELECT 1 FROM pg_database WHERE datname='%s'" % database
             for db in (database, 'postgres', 'template1', 'template0', None):
                 url = _set_url_database(url, database=db)
-                engine = sa.create_engine(url)
+                engine = sa.create_engine(url, isolation_level='AUTOCOMMIT')
                 try:
                     return bool(_get_scalar_result(engine, sa.text(text)))
                 except (ProgrammingError, OperationalError):
@@ -512,10 +511,7 @@ def database_exists(url):
         elif dialect_name == 'mssql':
             text = "SELECT 1 FROM sys.databases WHERE name = '%s'" % database
             url = _set_url_database(url, database='master')
-            if dialect_driver in {'pymssql', 'pyodbc'}:
-                engine = sa.create_engine(url, connect_args={'autocommit': True})
-            else:
-                engine = sa.create_engine(url)
+            engine = sa.create_engine(url, isolation_level='AUTOCOMMIT')
             try:
                 return bool(_get_scalar_result(engine, sa.text(text)))
             except (ProgrammingError, OperationalError):
@@ -568,10 +564,9 @@ def create_database(url, encoding='utf8', template=None):
     elif not dialect_name == 'sqlite':
         url = _set_url_database(url, database=None)
 
-    if dialect_name == 'mssql' and dialect_driver in {'pymssql', 'pyodbc'}:
-        engine = sa.create_engine(url, connect_args={'autocommit': True})
-    elif dialect_name == 'postgresql' and dialect_driver in {
-            'asyncpg', 'pg8000', 'psycopg', 'psycopg2', 'psycopg2cffi'}:
+    if (dialect_name == 'mssql' and dialect_driver in {'pymssql', 'pyodbc'}) \
+            or (dialect_name == 'postgresql' and dialect_driver in {
+            'asyncpg', 'pg8000', 'psycopg', 'psycopg2', 'psycopg2cffi'}):
         engine = sa.create_engine(url, isolation_level='AUTOCOMMIT')
     else:
         engine = sa.create_engine(url)
@@ -639,10 +634,9 @@ def drop_database(url):
     elif not dialect_name == 'sqlite':
         url = _set_url_database(url, database=None)
 
-    if dialect_name == 'mssql' and dialect_driver in {'pymssql', 'pyodbc'}:
-        engine = sa.create_engine(url, connect_args={'autocommit': True})
-    elif dialect_name == 'postgresql' and dialect_driver in {
-            'asyncpg', 'pg8000', 'psycopg', 'psycopg2', 'psycopg2cffi'}:
+    if (dialect_name == 'mssql' and dialect_driver in {'pymssql', 'pyodbc'}) \
+            or (dialect_name == 'postgresql' and dialect_driver in {
+            'asyncpg', 'pg8000', 'psycopg', 'psycopg2', 'psycopg2cffi'}):
         engine = sa.create_engine(url, isolation_level='AUTOCOMMIT')
     else:
         engine = sa.create_engine(url)
